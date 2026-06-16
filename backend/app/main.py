@@ -12,8 +12,9 @@ from fastapi.responses import JSONResponse
 from app.config import settings
 from app.db.session import SessionLocal, init_db
 from app.logging_config import configure_logging
-from app.routers import jobs, upload
+from app.routers import jobs, rank, scoring, upload
 from app.services.embeddings import EmbeddingService
+from app.services.errors import AppError
 
 configure_logging(is_production=settings.is_production)
 log = structlog.get_logger(__name__)
@@ -25,12 +26,9 @@ async def lifespan(app: FastAPI):
     init_db()
     log.info("startup.db_ready")
 
-    # Build the embedder once (loads the model — can take a few seconds)
     embedder = EmbeddingService()
     app.state.embedder = embedder
 
-    # Rebuild Chroma's in-memory index from SQLite's durable `vectors` table.
-    # Required because Chroma here is a process-local cache, not persisted disk.
     db = SessionLocal()
     try:
         n = embedder.rebuild_from_db(db)
@@ -44,7 +42,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Resume Intelligence Platform",
-    version="0.3.0",
+    version="0.5.0",
     docs_url="/docs",
     redoc_url="/redoc",
     lifespan=lifespan,
@@ -81,6 +79,23 @@ async def request_context_middleware(request: Request, call_next):
     return response
 
 
+@app.exception_handler(AppError)
+async def app_error_handler(request: Request, exc: AppError):
+    """Maps the AppError hierarchy (Day 5) to the RFC-style problem JSON contract."""
+    req_id = structlog.contextvars.get_contextvars().get("request_id", "?")
+    log.warning(
+        "app_error",
+        code=exc.code,
+        detail=exc.detail,
+        status=exc.status_code,
+        path=request.url.path,
+    )
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail, "code": exc.code, "request_id": req_id},
+    )
+
+
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     req_id = structlog.contextvars.get_contextvars().get("request_id", "?")
@@ -101,10 +116,12 @@ async def health(request: Request):
     return {
         "status": "ok",
         "environment": settings.environment,
-        "version": "0.3.0",
+        "version": "0.5.0",
         "embedder_ready": embedder_ready,
     }
 
 
 app.include_router(jobs.router)
 app.include_router(upload.router)
+app.include_router(scoring.router)
+app.include_router(rank.router)

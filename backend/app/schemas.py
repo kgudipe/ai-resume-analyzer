@@ -25,7 +25,7 @@ class UploadResponse(BaseModel):
     job_id: str
     filename: str
     chars_extracted: int
-    chunks_indexed: int          # filled in on Day 3 when embeddings land
+    chunks_indexed: int
 
 
 # ── Score ─────────────────────────────────────────────────────────────────────
@@ -33,7 +33,7 @@ class UploadResponse(BaseModel):
 class ScoreRequest(BaseModel):
     job_id: str
     candidate_id: str
-    model: Literal["groq", "custom"] = "groq"
+    model: Literal["groq", "fallback", "custom"] = "groq"
     top_k: int = Field(default=5, ge=1, le=20)
 
 class DimensionScore(BaseModel):
@@ -51,7 +51,7 @@ class ScorePayload(BaseModel):
 class ScoreResponse(BaseModel):
     score_id: str
     candidate_id: str
-    status: Literal["complete", "failed"]
+    status: Literal["pending", "complete", "failed"]
     model: str
     payload: ScorePayload | None = None
     error: str | None = None
@@ -70,3 +70,12 @@ class RankResponse(BaseModel):
     job_id: str
     total: int
     candidates: list[RankedCandidate]
+
+
+# ── Error contract ──────────────────────────────────────────────────────────
+
+class ProblemDetail(BaseModel):
+    """RFC-style problem JSON returned by every error path in the app."""
+    detail: str
+    code: str
+    request_id: str
