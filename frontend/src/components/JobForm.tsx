@@ -65,7 +65,7 @@ export function JobForm({ onJobCreated }: JobFormProps) {
             onChange={(e) => setDescription(e.target.value)}
             rows={10}
             maxLength={20_000}
-            className="min-h-64 resize-y bg-background text-base leading-7"
+            className="h-64 max-h-64 min-h-64 resize-none overflow-y-auto bg-background text-base leading-7 field-sizing-fixed"
           />
           <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
             <span>{description.trim().length} / 20,000 characters</span>

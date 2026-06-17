@@ -7,6 +7,18 @@ import unicodedata
 import structlog
 
 log = structlog.get_logger(__name__)
+_EMAIL_RE = re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.IGNORECASE)
+_SECTION_HEADERS = {
+    "summary",
+    "professional summary",
+    "experience",
+    "work experience",
+    "education",
+    "skills",
+    "technical skills",
+    "projects",
+    "certifications",
+}
 
 # ── Extraction ────────────────────────────────────────────────────────────────
 
@@ -56,6 +68,28 @@ def extract_text(filename: str, content: bytes) -> str:
     return cleaned
 
 
+def extract_contact_info(text: str) -> tuple[str | None, str | None]:
+    """Best-effort extraction of candidate name and email from resume text."""
+    email_match = _EMAIL_RE.search(text)
+    email = email_match.group(0).lower() if email_match else None
+
+    name = None
+    for raw_line in text.splitlines()[:12]:
+        line = raw_line.strip(" \t-|•")
+        if not line:
+            continue
+        if _EMAIL_RE.search(line) or any(char.isdigit() for char in line):
+            continue
+        if line.lower().strip(":") in _SECTION_HEADERS:
+            continue
+        words = [word for word in re.split(r"\s+", line) if word]
+        if 2 <= len(words) <= 5 and all(_looks_like_name_part(word) for word in words):
+            name = " ".join(word.capitalize() for word in words)
+            break
+
+    return name, email
+
+
 # ── Cleaning ──────────────────────────────────────────────────────────────────
 
 def _clean(text: str) -> str:
@@ -69,6 +103,11 @@ def _clean(text: str) -> str:
     # strip null bytes and other control characters (common in PDF extraction)
     text = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", text)
     return text.strip()
+
+
+def _looks_like_name_part(word: str) -> bool:
+    cleaned = re.sub(r"[^A-Za-z'-]", "", word)
+    return len(cleaned) >= 2 and cleaned.replace("'", "").replace("-", "").isalpha()
 
 
 # ── Chunking ──────────────────────────────────────────────────────────────────

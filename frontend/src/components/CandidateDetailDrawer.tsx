@@ -35,9 +35,9 @@ export function CandidateDetailDrawer({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="w-full overflow-y-auto bg-background sm:max-w-2xl">
-        <SheetHeader>
-          <SheetTitle className="flex items-center gap-2 text-xl">
+      <SheetContent className="overflow-y-auto bg-background p-0 data-[side=right]:w-full data-[side=right]:sm:w-[calc(100vw-2rem)] data-[side=right]:sm:max-w-none data-[side=right]:lg:w-[min(1180px,82vw)]">
+        <SheetHeader className="border-b bg-card/80 p-5 pr-14 sm:p-6">
+          <SheetTitle className="flex items-center gap-2 text-xl sm:text-2xl">
             <Sparkles className="size-5 text-primary" />
             {candidateName ?? "Candidate"}
           </SheetTitle>
@@ -51,8 +51,8 @@ export function CandidateDetailDrawer({
         )}
 
         {payload && (
-          <div className="mt-6 space-y-5">
-            <div className="rounded-2xl border bg-card p-5 panel-shadow">
+          <div className="mx-auto w-full max-w-6xl space-y-5 p-4 sm:p-6">
+            <div className="rounded-2xl border bg-card p-5 panel-shadow sm:p-6">
               <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <p className="text-sm font-medium text-muted-foreground">Overall score</p>
@@ -69,25 +69,27 @@ export function CandidateDetailDrawer({
               </div>
             </div>
 
-            <div className="rounded-2xl border bg-card p-5">
+            <div className="rounded-2xl border bg-card p-5 sm:p-6">
+                <p className="mb-3 text-sm font-medium text-muted-foreground">Summary</p>
+              <p className="max-w-4xl text-base leading-8 text-foreground sm:text-lg">
+                {payload.summary}
+              </p>
+            </div>
+
+            <div className="rounded-2xl border bg-card p-5 sm:p-6">
               <p className="mb-4 text-sm font-medium text-muted-foreground">Score breakdown</p>
-              <ResponsiveContainer width="100%" height={Math.max(180, chartData.length * 48)}>
-                <BarChart data={chartData} layout="vertical" margin={{ left: 8, right: 12 }}>
+              <ResponsiveContainer width="100%" height={Math.max(260, chartData.length * 58)}>
+                <BarChart data={chartData} layout="vertical" margin={{ left: 20, right: 28 }}>
                   <XAxis type="number" domain={[0, 100]} hide />
-                  <YAxis type="category" dataKey="name" width={118} tick={{ fontSize: 12 }} />
+                  <YAxis type="category" dataKey="name" width={190} tick={{ fontSize: 13 }} />
                   <Tooltip />
                   <Bar dataKey="score" fill="var(--primary)" radius={[0, 6, 6, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
 
-            <div className="rounded-2xl border bg-card p-5">
-              <p className="mb-2 text-sm font-medium text-muted-foreground">Summary</p>
-              <p className="text-sm leading-7">{payload.summary}</p>
-            </div>
-
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="rounded-2xl border bg-card p-5">
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="rounded-2xl border bg-card p-5 sm:p-6">
                 <p className="mb-3 flex items-center gap-2 text-sm font-medium text-muted-foreground">
                   <CheckCircle2 className="size-4 text-emerald-600" />
                   Matched skills
@@ -100,7 +102,8 @@ export function CandidateDetailDrawer({
                   ))}
                 </div>
               </div>
-              <div className="rounded-2xl border bg-card p-5">
+
+              <div className="rounded-2xl border bg-card p-5 sm:p-6">
                 <p className="mb-3 flex items-center gap-2 text-sm font-medium text-muted-foreground">
                   <CircleAlert className="size-4 text-amber-600" />
                   Missing skills

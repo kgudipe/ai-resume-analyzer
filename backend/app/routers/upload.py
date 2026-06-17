@@ -9,7 +9,7 @@ from app.db.session import get_db
 from app.dependencies import get_embedding_service
 from app.schemas import UploadResponse
 from app.services.embeddings import EmbeddingService
-from app.services.parser import chunk_text, extract_text
+from app.services.parser import chunk_text, extract_contact_info, extract_text
 
 log = structlog.get_logger(__name__)
 router = APIRouter(prefix="/api/jobs", tags=["upload"])
@@ -52,8 +52,15 @@ async def upload_resume(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     chunks = chunk_text(raw_text)
+    name, email = extract_contact_info(raw_text)
 
-    candidate = Candidate(job_id=job_id, filename=filename, raw_text=raw_text)
+    candidate = Candidate(
+        job_id=job_id,
+        filename=filename,
+        raw_text=raw_text,
+        name=name,
+        email=email,
+    )
     db.add(candidate)
     db.commit()
     db.refresh(candidate)
