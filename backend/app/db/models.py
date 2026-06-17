@@ -94,7 +94,7 @@ class Score(Base):
     )
 
     job: Mapped["Job"] = relationship(back_populates="scores")
-    candidate: Mapped["Candidate"] = relationship(back_populates="candidate")
+    candidate: Mapped["Candidate"] = relationship(back_populates="scores")
 
 
 class Vector(Base):
