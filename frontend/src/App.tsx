@@ -21,6 +21,7 @@ type Step =
   | { name: "results"; jobId: string; scoreIdByCandidate: Record<string, string> };
 
 const STORAGE_KEY = "resume-analyzer.workflow.v1";
+const HISTORY_STATE_KEY = "resume-analyzer.workflow";
 const INITIAL_STEP: Step = { name: "setup", job: null, uploaded: [] };
 
 function App() {
@@ -31,13 +32,36 @@ function App() {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(step));
   }, [step]);
 
+  useEffect(() => {
+    window.history.replaceState(toHistoryState(step), "");
+
+    const handlePopState = (event: PopStateEvent) => {
+      const historyStep = readHistoryStep(event.state);
+      setStep(historyStep ?? loadStoredStep());
+    };
+
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+    // initialize browser history once for the restored workflow entry
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const navigateStep = useCallback((nextStep: Step, mode: "push" | "replace" = "push") => {
+    setStep(nextStep);
+    if (mode === "push") {
+      window.history.pushState(toHistoryState(nextStep), "");
+    } else {
+      window.history.replaceState(toHistoryState(nextStep), "");
+    }
+  }, []);
+
   const resetWorkflow = () => {
     window.localStorage.removeItem(STORAGE_KEY);
-    setStep(INITIAL_STEP);
+    navigateStep(INITIAL_STEP);
   };
   const updateSetupState = useCallback((job: JobOut | null, uploaded: UploadResponse[]) => {
-    setStep({ name: "setup", job, uploaded });
-  }, []);
+    navigateStep({ name: "setup", job, uploaded }, "replace");
+  }, [navigateStep]);
 
   return (
     <QueryClientProvider client={queryClient}>
@@ -86,13 +110,16 @@ function App() {
               initialUploaded={step.uploaded}
               onSetupChange={updateSetupState}
               onStartScoring={(jobId, candidateInfos) => {
-                setStep({
-                  name: "processing",
-                  jobId,
-                  candidates: candidateInfos,
-                  finished: false,
-                  scoreIdByCandidate: {},
-                });
+                navigateStep(
+                  {
+                    name: "processing",
+                    jobId,
+                    candidates: candidateInfos,
+                    finished: false,
+                    scoreIdByCandidate: {},
+                  },
+                  "push",
+                );
               }}
             />
           )}
@@ -104,16 +131,22 @@ function App() {
               initialFinished={step.finished ?? false}
               initialScoreIdByCandidate={step.scoreIdByCandidate ?? {}}
               onProcessingFinished={(mapping) =>
-                setStep({
-                  name: "processing",
-                  jobId: step.jobId,
-                  candidates: step.candidates,
-                  finished: true,
-                  scoreIdByCandidate: mapping,
-                })
+                navigateStep(
+                  {
+                    name: "processing",
+                    jobId: step.jobId,
+                    candidates: step.candidates,
+                    finished: true,
+                    scoreIdByCandidate: mapping,
+                  },
+                  "replace",
+                )
               }
               onComplete={(mapping) =>
-                setStep({ name: "results", jobId: step.jobId, scoreIdByCandidate: mapping })
+                navigateStep(
+                  { name: "results", jobId: step.jobId, scoreIdByCandidate: mapping },
+                  "push",
+                )
               }
             />
           )}
@@ -187,6 +220,47 @@ function loadStoredStep(): Step {
   }
 
   return INITIAL_STEP;
+}
+
+function toHistoryState(step: Step) {
+  return {
+    key: HISTORY_STATE_KEY,
+    step,
+  };
+}
+
+function readHistoryStep(state: unknown): Step | null {
+  if (!state || typeof state !== "object") return null;
+  const value = state as { key?: unknown; step?: unknown };
+  if (value.key !== HISTORY_STATE_KEY || !value.step || typeof value.step !== "object") {
+    return null;
+  }
+
+  return normalizeStep(value.step as Step);
+}
+
+function normalizeStep(parsed: Step): Step | null {
+  if (parsed.name === "setup") {
+    return {
+      name: "setup",
+      job: parsed.job ?? null,
+      uploaded: Array.isArray(parsed.uploaded) ? parsed.uploaded : [],
+    };
+  }
+  if (parsed.name === "processing" && parsed.jobId && Array.isArray(parsed.candidates)) {
+    return {
+      name: "processing",
+      jobId: parsed.jobId,
+      candidates: parsed.candidates,
+      finished: parsed.finished ?? false,
+      scoreIdByCandidate: parsed.scoreIdByCandidate ?? {},
+    };
+  }
+  if (parsed.name === "results" && parsed.jobId && parsed.scoreIdByCandidate) {
+    return parsed;
+  }
+
+  return null;
 }
 
 export default App;
