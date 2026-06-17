@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "sonner";
 import { BarChart3, FileSearch, Layers3, Sparkles } from "lucide-react";
@@ -7,15 +7,37 @@ import { SetupScreen } from "@/components/SetupScreen";
 import { ProcessingScreen } from "@/components/ProcessingScreen";
 import { ResultsScreen } from "@/components/ResultsScreen";
 import { cn } from "@/lib/utils";
+import type { JobOut, UploadResponse } from "@/lib/api";
 
 type Step =
-  | { name: "setup" }
-  | { name: "processing"; jobId: string; candidates: { candidateId: string; filename: string }[] }
+  | { name: "setup"; job: JobOut | null; uploaded: UploadResponse[] }
+  | {
+      name: "processing";
+      jobId: string;
+      candidates: { candidateId: string; filename: string }[];
+      finished?: boolean;
+      scoreIdByCandidate?: Record<string, string>;
+    }
   | { name: "results"; jobId: string; scoreIdByCandidate: Record<string, string> };
 
+const STORAGE_KEY = "resume-analyzer.workflow.v1";
+const INITIAL_STEP: Step = { name: "setup", job: null, uploaded: [] };
+
 function App() {
-  const [step, setStep] = useState<Step>({ name: "setup" });
+  const [step, setStep] = useState<Step>(() => loadStoredStep());
   const activeStep = step.name;
+
+  useEffect(() => {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(step));
+  }, [step]);
+
+  const resetWorkflow = () => {
+    window.localStorage.removeItem(STORAGE_KEY);
+    setStep(INITIAL_STEP);
+  };
+  const updateSetupState = useCallback((job: JobOut | null, uploaded: UploadResponse[]) => {
+    setStep({ name: "setup", job, uploaded });
+  }, []);
 
   return (
     <QueryClientProvider client={queryClient}>
@@ -60,8 +82,17 @@ function App() {
         <main>
           {step.name === "setup" && (
             <SetupScreen
+              initialJob={step.job}
+              initialUploaded={step.uploaded}
+              onSetupChange={updateSetupState}
               onStartScoring={(jobId, candidateInfos) => {
-                setStep({ name: "processing", jobId, candidates: candidateInfos });
+                setStep({
+                  name: "processing",
+                  jobId,
+                  candidates: candidateInfos,
+                  finished: false,
+                  scoreIdByCandidate: {},
+                });
               }}
             />
           )}
@@ -70,6 +101,17 @@ function App() {
             <ProcessingScreen
               jobId={step.jobId}
               candidates={step.candidates}
+              initialFinished={step.finished ?? false}
+              initialScoreIdByCandidate={step.scoreIdByCandidate ?? {}}
+              onProcessingFinished={(mapping) =>
+                setStep({
+                  name: "processing",
+                  jobId: step.jobId,
+                  candidates: step.candidates,
+                  finished: true,
+                  scoreIdByCandidate: mapping,
+                })
+              }
               onComplete={(mapping) =>
                 setStep({ name: "results", jobId: step.jobId, scoreIdByCandidate: mapping })
               }
@@ -80,7 +122,7 @@ function App() {
             <ResultsScreen
               jobId={step.jobId}
               scoreIdByCandidate={step.scoreIdByCandidate}
-              onRestart={() => setStep({ name: "setup" })}
+              onRestart={resetWorkflow}
             />
           )}
         </main>
@@ -113,6 +155,38 @@ function StepPill({
       <span>{label}</span>
     </div>
   );
+}
+
+function loadStoredStep(): Step {
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY);
+    if (!raw) return INITIAL_STEP;
+
+    const parsed = JSON.parse(raw) as Step;
+    if (parsed.name === "setup") {
+      return {
+        name: "setup",
+        job: parsed.job ?? null,
+        uploaded: Array.isArray(parsed.uploaded) ? parsed.uploaded : [],
+      };
+    }
+    if (parsed.name === "processing" && parsed.jobId && Array.isArray(parsed.candidates)) {
+      return {
+        name: "processing",
+        jobId: parsed.jobId,
+        candidates: parsed.candidates,
+        finished: parsed.finished ?? false,
+        scoreIdByCandidate: parsed.scoreIdByCandidate ?? {},
+      };
+    }
+    if (parsed.name === "results" && parsed.jobId && parsed.scoreIdByCandidate) {
+      return parsed;
+    }
+  } catch {
+    window.localStorage.removeItem(STORAGE_KEY);
+  }
+
+  return INITIAL_STEP;
 }
 
 export default App;

@@ -96,7 +96,9 @@ export function RankedTable({ candidates, scoreIdByCandidate }: RankedTableProps
       </div>
 
       <CandidateDetailDrawer
-        scoreId={selected ? scoreIdByCandidate[selected.candidate_id] ?? null : null}
+        scoreId={
+          selected ? scoreIdByCandidate[selected.candidate_id] ?? selected.score_id ?? null : null
+        }
         candidateName={selected?.name ?? null}
         open={selected !== null}
         onOpenChange={(open) => !open && setSelected(null)}

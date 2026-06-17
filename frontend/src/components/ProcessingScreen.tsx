@@ -13,13 +13,21 @@ import {
   Activity,
   FileSearch,
 } from "lucide-react";
-import { scoreCandidate, extractErrorMessage, type ScoreResponse } from "@/lib/api";
+import {
+  scoreCandidate,
+  extractErrorMessage,
+  getRanking,
+  type ScoreResponse,
+} from "@/lib/api";
 import { runWithConcurrencyLimit } from "@/lib/concurrencyLimiter";
 import type { CandidateProgress } from "@/types/scoring";
 
 interface ProcessingScreenProps {
   jobId: string;
   candidates: { candidateId: string; filename: string }[];
+  initialFinished: boolean;
+  initialScoreIdByCandidate: Record<string, string>;
+  onProcessingFinished: (scoreIdByCandidate: Record<string, string>) => void;
   onComplete: (scoreIdByCandidate: Record<string, string>) => void; // ← changed
 }
 
@@ -27,64 +35,127 @@ interface ProcessingScreenProps {
 // even accounting for retry/backoff traffic from the scorer itself.
 const CONCURRENCY = 4;
 
-export function ProcessingScreen({ jobId, candidates, onComplete }: ProcessingScreenProps) {
+export function ProcessingScreen({
+  jobId,
+  candidates,
+  initialFinished,
+  initialScoreIdByCandidate,
+  onProcessingFinished,
+  onComplete,
+}: ProcessingScreenProps) {
   const [progress, setProgress] = useState<CandidateProgress[]>(
     candidates.map((c) => ({
       candidateId: c.candidateId,
       filename: c.filename,
-      status: "queued",
-      scoreId: null,
+      status: initialFinished
+        ? initialScoreIdByCandidate[c.candidateId]
+          ? "done"
+          : "failed"
+        : "queued",
+      scoreId: initialScoreIdByCandidate[c.candidateId] ?? null,
       overall: null,
-      error: null,
+      error:
+        initialFinished && !initialScoreIdByCandidate[c.candidateId]
+          ? "No completed score was found for this candidate."
+          : null,
     })),
   );
-  const [isFinished, setIsFinished] = useState(false);
-  const [scoreIdByCandidate, setScoreIdByCandidate] = useState<Record<string, string>>({});
+  const [isFinished, setIsFinished] = useState(initialFinished);
+  const [scoreIdByCandidate, setScoreIdByCandidate] =
+    useState<Record<string, string>>(initialScoreIdByCandidate);
   const startedRef = useRef(false);
 
   useEffect(() => {
     if (startedRef.current) return; // guard against StrictMode double-invoke
     startedRef.current = true;
-    const completedScores: Record<string, string> = {};
+    if (initialFinished) return;
 
-    runWithConcurrencyLimit(
-      candidates,
-      CONCURRENCY,
-      async (candidate) => {
-        setProgress((prev) =>
-          prev.map((p) =>
-            p.candidateId === candidate.candidateId ? { ...p, status: "scoring" } : p,
-          ),
+    async function runScoring() {
+      const completedScores: Record<string, string> = {};
+      let candidatesToScore = candidates;
+
+      try {
+        const existingRank = await getRanking(jobId);
+        const existingByCandidate = new Map(
+          existingRank.candidates.map((candidate) => [candidate.candidate_id, candidate]),
         );
-        return scoreCandidate(jobId, candidate.candidateId, "groq");
-      },
-      (candidate, _index, result, error) => {
-        if (isCompleteScore(result)) {
-          completedScores[candidate.candidateId] = result.score_id;
-        }
 
-        setProgress((prev) =>
-          prev.map((p) => {
-            if (p.candidateId !== candidate.candidateId) return p;
-            if (error) {
-              return { ...p, status: "failed", error: extractErrorMessage(error) };
-            }
-            if (result?.status === "complete") {
+        if (existingByCandidate.size > 0) {
+          existingRank.candidates.forEach((candidate) => {
+            completedScores[candidate.candidate_id] = candidate.score_id;
+          });
+
+          setProgress((prev) =>
+            prev.map((p) => {
+              const existing = existingByCandidate.get(p.candidateId);
+              if (!existing) return p;
               return {
                 ...p,
                 status: "done",
-                scoreId: result.score_id,
-                overall: result.payload?.overall ?? null,
+                scoreId: existing.score_id,
+                overall: existing.overall,
+                error: null,
               };
-            }
-            return { ...p, status: "failed", error: result?.error ?? "Unknown error" };
-          }),
-        );
-      },
-    ).then(() => {
+            }),
+          );
+
+          candidatesToScore = candidates.filter(
+            (candidate) => !existingByCandidate.has(candidate.candidateId),
+          );
+        }
+      } catch {
+        candidatesToScore = candidates;
+      }
+
+      if (candidatesToScore.length === 0) {
+        setScoreIdByCandidate(completedScores);
+        setIsFinished(true);
+        onProcessingFinished(completedScores);
+        return;
+      }
+
+      await runWithConcurrencyLimit(
+        candidatesToScore,
+        CONCURRENCY,
+        async (candidate) => {
+          setProgress((prev) =>
+            prev.map((p) =>
+              p.candidateId === candidate.candidateId ? { ...p, status: "scoring" } : p,
+            ),
+          );
+          return scoreCandidate(jobId, candidate.candidateId, "groq");
+        },
+        (candidate, _index, result, error) => {
+          if (isCompleteScore(result)) {
+            completedScores[candidate.candidateId] = result.score_id;
+          }
+
+          setProgress((prev) =>
+            prev.map((p) => {
+              if (p.candidateId !== candidate.candidateId) return p;
+              if (error) {
+                return { ...p, status: "failed", error: extractErrorMessage(error) };
+              }
+              if (result?.status === "complete") {
+                return {
+                  ...p,
+                  status: "done",
+                  scoreId: result.score_id,
+                  overall: result.payload?.overall ?? null,
+                };
+              }
+              return { ...p, status: "failed", error: result?.error ?? "Unknown error" };
+            }),
+          );
+        },
+      );
+
       setScoreIdByCandidate(completedScores);
       setIsFinished(true);
-    });
+      onProcessingFinished(completedScores);
+    }
+
+    void runScoring();
     // intentionally run once on mount — candidates/jobId are stable for the
     // lifetime of this screen by design (SetupScreen owns the wizard step)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -235,7 +306,7 @@ function StatusChip({
     case "done":
       return (
         <Badge variant="secondary" className="gap-1 text-green-600">
-          <CheckCircle2 className="h-3 w-3" /> {overall?.toFixed(0)}
+          <CheckCircle2 className="h-3 w-3" /> {overall !== null ? overall.toFixed(0) : "Done"}
         </Badge>
       );
     case "failed":

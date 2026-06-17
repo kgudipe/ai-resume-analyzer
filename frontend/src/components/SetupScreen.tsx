@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ArrowRight, BriefcaseBusiness, FileStack, Gauge, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { JobForm } from "@/components/JobForm";
@@ -7,17 +7,29 @@ import { Badge } from "@/components/ui/badge";
 import type { JobOut, UploadResponse } from "@/lib/api";
 
 interface SetupScreenProps {
+  initialJob: JobOut | null;
+  initialUploaded: UploadResponse[];
+  onSetupChange: (job: JobOut | null, uploaded: UploadResponse[]) => void;
   onStartScoring: (
     jobId: string,
     candidates: { candidateId: string; filename: string }[],
   ) => void;
 }
 
-export function SetupScreen({ onStartScoring }: SetupScreenProps) {
-  const [job, setJob] = useState<JobOut | null>(null);
-  const [uploaded, setUploaded] = useState<UploadResponse[]>([]);
+export function SetupScreen({
+  initialJob,
+  initialUploaded,
+  onSetupChange,
+  onStartScoring,
+}: SetupScreenProps) {
+  const [job, setJob] = useState<JobOut | null>(initialJob);
+  const [uploaded, setUploaded] = useState<UploadResponse[]>(initialUploaded);
 
   const canStart = job !== null && uploaded.length > 0;
+
+  useEffect(() => {
+    onSetupChange(job, uploaded);
+  }, [job, onSetupChange, uploaded]);
 
   return (
     <section className="mx-auto grid w-full max-w-7xl gap-6 px-4 py-6 sm:px-6 lg:grid-cols-[0.92fr_1.08fr] lg:px-8 lg:py-8">
@@ -67,6 +79,7 @@ export function SetupScreen({ onStartScoring }: SetupScreenProps) {
           <ResumeDropzone
             jobId={job.id}
             onUploaded={(res) => setUploaded((prev) => [...prev, res])}
+            uploaded={uploaded}
           />
         )}
 

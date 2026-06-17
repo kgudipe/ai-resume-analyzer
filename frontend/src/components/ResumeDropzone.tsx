@@ -10,6 +10,7 @@ import type { PendingResume } from "@/types/job";
 
 interface ResumeDropzoneProps {
   jobId: string;
+  uploaded?: UploadResponse[];
   onUploaded: (res: UploadResponse) => void;
 }
 
@@ -27,7 +28,7 @@ const ACCEPTED = {
 };
 const MAX_SIZE = 5 * 1024 * 1024; // mirrors backend's 5MB limit
 
-export function ResumeDropzone({ jobId, onUploaded }: ResumeDropzoneProps) {
+export function ResumeDropzone({ jobId, uploaded = [], onUploaded }: ResumeDropzoneProps) {
   const [files, setFiles] = useState<TrackedFile[]>([]);
 
   const mutation = useMutation({
@@ -138,10 +139,38 @@ export function ResumeDropzone({ jobId, onUploaded }: ResumeDropzoneProps) {
           </ul>
         )}
 
+        {files.length === 0 && uploaded.length > 0 && (
+          <ul className="grid gap-2">
+            {uploaded.map((resume) => (
+              <li
+                key={resume.candidate_id}
+                className="flex min-h-12 items-center gap-3 rounded-xl border bg-background/70 px-3 py-2 text-sm"
+              >
+                <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-secondary">
+                  <FileText className="size-4 text-muted-foreground" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-medium">{resume.filename}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {resume.chunks_indexed} chunks indexed
+                  </p>
+                </div>
+                <Badge variant="secondary" className="gap-1 text-green-600">
+                  <CheckCircle2 className="h-3 w-3" /> Done
+                </Badge>
+              </li>
+            ))}
+          </ul>
+        )}
+
         {files.length === 0 && (
           <div className="flex items-center gap-3 rounded-xl border bg-background/70 p-3 text-sm text-muted-foreground">
             <FileUp className="size-4" />
-            <span>No resumes uploaded yet.</span>
+            <span>
+              {uploaded.length > 0
+                ? "Uploaded resumes restored from this browser."
+                : "No resumes uploaded yet."}
+            </span>
           </div>
         )}
       </CardContent>

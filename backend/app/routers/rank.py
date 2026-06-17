@@ -45,6 +45,7 @@ def rank_candidates(
         rank += 1
         ranked.append(
             RankedCandidate(
+                score_id=score.id,
                 candidate_id=candidate.id,
                 name=candidate.name,
                 overall=score.overall,

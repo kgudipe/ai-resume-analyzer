@@ -60,6 +60,7 @@ class ScoreResponse(BaseModel):
 # ── Rank ──────────────────────────────────────────────────────────────────────
 
 class RankedCandidate(BaseModel):
+    score_id: str
     candidate_id: str
     name: str | None
     overall: float | None

@@ -45,6 +45,7 @@ export interface ScoreResponse {
 }
 
 export interface RankedCandidate {
+  score_id: string;
   candidate_id: string;
   name: string | null;
   overall: number | null;
