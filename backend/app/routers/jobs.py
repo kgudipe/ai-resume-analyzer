@@ -10,6 +10,7 @@ from app.dependencies import get_embedding_service
 from app.schemas import JobCreate, JobOut
 from app.services.embeddings import EmbeddingService
 from app.services.parser import chunk_text
+from app.services.requirements import extract_job_requirements
 
 log = structlog.get_logger(__name__)
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
@@ -23,9 +24,13 @@ async def create_job(
 ) -> JobOut:
     """
     Persist a new job description and index its chunks for retrieval.
-    Day 4 will add: Groq call to extract structured requirements.
     """
-    job = Job(title=payload.title, description=payload.description)
+    requirements = extract_job_requirements(payload.description)
+    job = Job(
+        title=payload.title,
+        description=payload.description,
+        requirements=requirements.model_dump(),
+    )
     db.add(job)
     db.commit()
     db.refresh(job)

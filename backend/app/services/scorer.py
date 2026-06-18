@@ -18,7 +18,13 @@ log = structlog.get_logger(__name__)
 # Phase 2's CustomModelScorer implements this exact same shape, so the
 # `/api/score` route never needs to know which one it's talking to.
 class Scorer(Protocol):
-    async def score(self, jd_text: str, resume_chunks: list[str]) -> ScorePayload: ...
+    async def score(
+        self,
+        jd_text: str,
+        resume_chunks: list[str],
+        requirements: dict | None = None,
+        skill_match: dict | None = None,
+    ) -> ScorePayload: ...
 
 
 _SYSTEM_PROMPT = """You are an expert technical recruiter scoring how well a candidate \
@@ -34,15 +40,27 @@ Do not include markdown fences or commentary. The JSON MUST match this schema ex
   "missing_skills": ["<string>", ...]
 }
 Score conservatively and ground every claim in the provided text. Use 3-6 dimensions \
-such as skills, experience, education, domain_fit."""
+such as required_skills, preferred_skills, experience, education, domain_fit.
+If STRUCTURED REQUIREMENTS and DETERMINISTIC SKILL MATCH are provided, use those exact \
+matched_skills and missing_skills values in your JSON. Do not invent extra skills."""
 
 
-def _build_user_prompt(jd_text: str, resume_chunks: list[str]) -> str:
+def _build_user_prompt(
+    jd_text: str,
+    resume_chunks: list[str],
+    requirements: dict | None = None,
+    skill_match: dict | None = None,
+) -> str:
     joined = "\n---\n".join(resume_chunks)
+    requirements_json = json.dumps(requirements or {}, indent=2, sort_keys=True)
+    skill_match_json = json.dumps(skill_match or {}, indent=2, sort_keys=True)
     return (
         f"JOB DESCRIPTION:\n{jd_text}\n\n"
+        f"STRUCTURED REQUIREMENTS:\n{requirements_json}\n\n"
+        f"DETERMINISTIC SKILL MATCH:\n{skill_match_json}\n\n"
         f"MOST RELEVANT RESUME EXCERPTS:\n{joined}\n\n"
-        f"Return the scoring JSON now."
+        f"Return the scoring JSON now. The matched_skills and missing_skills arrays must "
+        f"match DETERMINISTIC SKILL MATCH exactly when it is non-empty."
     )
 
 
@@ -65,10 +83,24 @@ class GroqScorer:
         self._model = model or settings.groq_model_primary
         self._max_retries = max_retries
 
-    async def score(self, jd_text: str, resume_chunks: list[str]) -> ScorePayload:
+    async def score(
+        self,
+        jd_text: str,
+        resume_chunks: list[str],
+        requirements: dict | None = None,
+        skill_match: dict | None = None,
+    ) -> ScorePayload:
         messages: list[dict] = [
             {"role": "system", "content": _SYSTEM_PROMPT},
-            {"role": "user", "content": _build_user_prompt(jd_text, resume_chunks)},
+            {
+                "role": "user",
+                "content": _build_user_prompt(
+                    jd_text,
+                    resume_chunks,
+                    requirements=requirements,
+                    skill_match=skill_match,
+                ),
+            },
         ]
         last_err: Exception | None = None
 
@@ -155,5 +187,16 @@ class FallbackScorer:
             model=settings.groq_model_fallback, max_retries=max_retries
         )
 
-    async def score(self, jd_text: str, resume_chunks: list[str]) -> ScorePayload:
-        return await self._inner.score(jd_text, resume_chunks)
+    async def score(
+        self,
+        jd_text: str,
+        resume_chunks: list[str],
+        requirements: dict | None = None,
+        skill_match: dict | None = None,
+    ) -> ScorePayload:
+        return await self._inner.score(
+            jd_text,
+            resume_chunks,
+            requirements=requirements,
+            skill_match=skill_match,
+        )

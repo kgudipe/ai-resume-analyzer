@@ -11,6 +11,13 @@ class JobCreate(BaseModel):
     title: str = Field(min_length=2, max_length=255)
     description: str = Field(min_length=20, max_length=20_000)
 
+class JobRequirements(BaseModel):
+    required_skills: list[str] = Field(default_factory=list)
+    preferred_skills: list[str] = Field(default_factory=list)
+    experience_years: int | None = None
+    responsibilities: list[str] = Field(default_factory=list)
+    keywords: list[str] = Field(default_factory=list)
+
 class JobOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: str

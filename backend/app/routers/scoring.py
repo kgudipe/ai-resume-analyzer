@@ -11,6 +11,7 @@ from app.dependencies import get_embedding_service, get_scorer
 from app.schemas import ScoreRequest, ScoreResponse
 from app.services.embeddings import EmbeddingService
 from app.services.errors import NoChunksIndexedError, NotFoundError, ScoringFailedError
+from app.services.requirements import compare_requirements, extract_job_requirements
 
 log = structlog.get_logger(__name__)
 router = APIRouter(prefix="/api", tags=["scoring"])
@@ -21,6 +22,14 @@ _MODEL_NAMES = {
     "fallback": "llama-3.1-8b-instant",
     "custom": "qlora-llama3.1-8b",
 }
+
+# How much the final `overall` leans on the LLM's holistic judgement vs. the
+# deterministic skill-coverage ratio. The LLM stays the majority voice (it also
+# weighs experience, education, domain fit), but coverage keeps it honest.
+# Keyword coverage has more false-negatives than false-positives, so we don't
+# let it dominate. Must sum to 1.0.
+_LLM_SCORE_WEIGHT = 0.6
+_SKILL_SCORE_WEIGHT = 0.4
 
 
 @router.post("/score", response_model=ScoreResponse)
@@ -66,8 +75,39 @@ async def score_candidate(
                 "No indexed resume chunks for this candidate. Re-upload the resume."
             )
 
+        requirements = job.requirements or extract_job_requirements(job.description).model_dump()
+        if not job.requirements:
+            job.requirements = requirements
+            db.commit()
+        skill = compare_requirements(requirements, chunks)
+        skill_match = {
+            "matched_skills": skill.matched,
+            "missing_skills": skill.missing,
+        }
+
         scorer = get_scorer(req.model)
-        payload = await scorer.score(job.description, chunks)
+        payload = await scorer.score(
+            job.description,
+            chunks,
+            requirements=requirements,
+            skill_match=skill_match,
+        )
+        # Ground the headline number in deterministic skill coverage so it can't
+        # contradict the matched/missing lists shown next to it. When the JD
+        # yields no known skills, we can't measure coverage — trust the LLM fully.
+        if skill.assessable:
+            grounded = round(
+                _LLM_SCORE_WEIGHT * payload.overall
+                + _SKILL_SCORE_WEIGHT * skill.coverage * 100,
+                1,
+            )
+            payload = payload.model_copy(
+                update={
+                    "overall": grounded,
+                    "matched_skills": skill.matched,
+                    "missing_skills": skill.missing,
+                }
+            )
 
         score_row.status = ScoreStatus.COMPLETE
         score_row.overall = payload.overall
